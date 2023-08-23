@@ -11,11 +11,13 @@
 #include "clang-tools-extra/clangd/Protocol.h"
 #include "clang-tools-extra/clangd/Transport.h"
 #include "clang-tools-extra/clangd/support/Function.h"
+#include "language_server/file.h"
 #include "toolchain/lexer/tokenized_buffer.h"
 #include "toolchain/parser/parse_tree.h"
 #include "toolchain/source/source_buffer.h"
 
 namespace Carbon::LS {
+
 class LanguageServer : public clang::clangd::Transport::MessageHandler,
                        public clang::clangd::LSPBinder::RawOutgoing {
  public:
@@ -50,13 +52,15 @@ class LanguageServer : public clang::clangd::Transport::MessageHandler,
 
  private:
   const std::unique_ptr<clang::clangd::Transport> transport_;
-  // content of files managed by the language client.
-  std::unordered_map<std::string, std::string> files_;
+  // files opened by the language client.
+  llvm::StringMap<std::unique_ptr<File>> files_;
   // handlers for client methods and notifications
   clang::clangd::LSPBinder::RawHandlers handlers_;
 
   explicit LanguageServer(std::unique_ptr<clang::clangd::Transport> transport)
       : transport_(std::move(transport)) {}
+
+  auto GetFile(const clang::clangd::URIForFile& uri) -> File&;
 
   // Typed handlers for notifications and method calls by client.
 

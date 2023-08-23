@@ -5,7 +5,6 @@
 #include "language_server/language_server.h"
 
 #include "clang-tools-extra/clangd/Protocol.h"
-#include "toolchain/diagnostics/null_diagnostics.h"
 #include "toolchain/lexer/tokenized_buffer.h"
 #include "toolchain/parser/parse_node_kind.h"
 #include "toolchain/parser/parse_tree.h"
@@ -15,15 +14,23 @@ namespace Carbon::LS {
 
 void LanguageServer::OnDidOpenTextDocument(
     clang::clangd::DidOpenTextDocumentParams const& params) {
-  files_.emplace(params.textDocument.uri.file(), params.textDocument.text);
+  files_.try_emplace(
+      params.textDocument.uri.file(),
+      File::New(params.textDocument.uri.file(), params.textDocument.text));
 }
 
 void LanguageServer::OnDidChangeTextDocument(
     clang::clangd::DidChangeTextDocumentParams const& params) {
   // full text is sent if full sync is specified in capabilities.
   assert(params.contentChanges.size() == 1);
-  std::string file = params.textDocument.uri.file().str();
-  files_[file] = params.contentChanges[0].text;
+  files_[params.textDocument.uri.file()] =
+      File::New(params.textDocument.uri.file(), params.contentChanges[0].text);
+}
+
+auto LanguageServer::GetFile(const clang::clangd::URIForFile& uri) -> File& {
+  auto it = files_.find(uri.file());
+  assert(it != files_.end());
+  return *it->second;
 }
 
 void LanguageServer::OnInitialize(
@@ -76,7 +83,7 @@ auto LanguageServer::onReply(llvm::json::Value /*id*/,
 }
 
 // Returns the text of first child of kind ParseNodeKind::Name.
-static auto getName(ParseTree& p, ParseTree::Node node)
+static auto getName(const ParseTree& p, ParseTree::Node node)
     -> std::optional<llvm::StringRef> {
   for (auto ch : p.children(node)) {
     if (p.node_kind(ch) == ParseNodeKind::Name) {
@@ -89,14 +96,9 @@ static auto getName(ParseTree& p, ParseTree::Node node)
 void LanguageServer::OnDocumentSymbol(
     clang::clangd::DocumentSymbolParams const& params,
     clang::clangd::Callback<std::vector<clang::clangd::DocumentSymbol>> cb) {
-  llvm::vfs::InMemoryFileSystem vfs;
-  auto file = params.textDocument.uri.file().str();
-  vfs.addFile(file, /*mtime=*/0,
-              llvm::MemoryBuffer::getMemBufferCopy(files_.at(file)));
-
-  auto buf = SourceBuffer::CreateFromFile(vfs, file);
-  auto lexed = TokenizedBuffer::Lex(*buf, NullDiagnosticConsumer());
-  auto parsed = ParseTree::Parse(lexed, NullDiagnosticConsumer(), nullptr);
+  auto& file = GetFile(params.textDocument.uri);
+  const auto& lexed = file.TokenizedBuffer();
+  const auto& parsed = file.ParseTree();
   std::vector<clang::clangd::DocumentSymbol> result;
   for (const auto& node : parsed.postorder()) {
     clang::clangd::SymbolKind symbol_kind;

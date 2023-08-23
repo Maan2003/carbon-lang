@@ -11,6 +11,8 @@ package(default_visibility = [
 cc_binary(
     name = "language_server",
     srcs = [
+        "file.cpp",
+        "file.h",
         "language_server.cpp",
         "language_server.h",
         "main.cpp",
